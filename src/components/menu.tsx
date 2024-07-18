@@ -3,8 +3,9 @@ import { Message } from "@/features/messages/messages";
 import { KoeiroParam } from "@/features/constants/koeiroParam";
 import { ChatLog } from "./chatLog";
 import { CodeLog } from "./codeLog";
-import React, { useCallback, useContext, useRef, useState } from "react";
+import React, { useCallback, useContext, useRef, useState, useEffect } from "react";
 import { Settings } from "./settings";
+import { Webcam }  from "./webcam";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
 import { AssistantText } from "./assistantText";
 import { useTranslation } from 'react-i18next';
@@ -85,6 +86,9 @@ type Props = {
   onChangeCharacterName: (key: string) => void;
   showCharacterName: boolean;
   onChangeShowCharacterName: (show: boolean) => void;
+  onChangeModalImage: (image: string) => void;
+  triggerShutter: boolean;
+  onChangeWebcamStatus: (show: boolean) => void;
 };
 export const Menu = ({
   selectAIService,
@@ -161,9 +165,14 @@ export const Menu = ({
   onChangeCharacterName,
   showCharacterName,
   onChangeShowCharacterName,
+  onChangeModalImage,
+  triggerShutter,
+  onChangeWebcamStatus,
 }: Props) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showChatLog, setShowChatLog] = useState(false);
+  const [showWebcam, setShowWebcam] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
   const { viewer } = useContext(ViewerContext);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
@@ -411,6 +420,28 @@ export const Menu = ({
     [onChangeShowCharacterName]
   );
 
+  const handleChangeModalImage = useCallback(
+    (image: string) => {
+      onChangeModalImage(image);
+    },
+    [onChangeModalImage]
+  );
+
+  // カメラが開いているかどうかの状態変更
+  useEffect(() => {
+    console.log("onChangeWebcamStatus")
+    onChangeWebcamStatus(showWebcam);
+    if (showWebcam) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(() => {
+          setShowPermissionModal(false);
+        })
+        .catch(() => {
+          setShowPermissionModal(true);
+        });
+    }
+  }, [showWebcam]);
+
   return (
     <>
       <div className="absolute z-10 m-24">
@@ -434,6 +465,19 @@ export const Menu = ({
               isProcessing={false}
               disabled={chatLog.length <= 0}
               onClick={() => setShowChatLog(true)}
+            />
+          )}
+          {selectAIService === "openai" && (selectAIModel === "gpt-4o" || selectAIModel === "gpt-4-turbo") ? (
+            <IconButton
+              iconName="24/Camera"
+              isProcessing={false}
+              onClick={() => setShowWebcam(!showWebcam)}
+            />
+          ) : (
+            <IconButton
+              iconName="24/Camera"
+              isProcessing={false}
+              disabled={true}
             />
           )}
         </div>
@@ -525,6 +569,20 @@ export const Menu = ({
       )}
       {!showChatLog && assistantMessage && (
         <AssistantText message={assistantMessage} characterName={characterName} showCharacterName ={showCharacterName} />
+      )}
+      {showWebcam && navigator.mediaDevices && (
+        <Webcam onChangeModalImage={handleChangeModalImage}
+          triggerShutter={triggerShutter}
+          showWebcam={showWebcam}
+        />
+      )}
+      {showPermissionModal && (
+        <div className="modal">
+          <div className="modal-content">
+            <p>カメラの使用を許可してください。</p>
+            <button onClick={() => setShowPermissionModal(false)}>閉じる</button>
+          </div>
+        </div>
       )}
       <input
         type="file"

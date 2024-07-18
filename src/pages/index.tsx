@@ -13,11 +13,13 @@ import { KoeiroParam, DEFAULT_PARAM } from "@/features/constants/koeiroParam";
 import { AIService, AIServiceConfig, getAIChatResponseStream } from "@/features/chat/aiChatFactory";
 import { Introduction } from "@/components/introduction";
 import { Menu } from "@/components/menu";
+import { IconButton } from "@/components/iconButton";
 import { Meta } from "@/components/meta";
 import "@/lib/i18n";
 import { useTranslation } from 'react-i18next';
 import { fetchAndProcessComments } from "@/features/youtube/youtubeComments";
 import { buildUrl } from "@/utils/buildUrl";
+import Image from 'next/image';
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
@@ -71,6 +73,11 @@ export default function Home() {
   const [chatProcessingCount, setChatProcessingCount] = useState(0);
   const [characterName, setCharacterName] = useState("");
   const [showCharacterName, setShowCharacterName] = useState(true);
+  const [modalImage, setModalImage] = useState("");
+  const [triggerShutter, setTriggerShutter] = useState(false);
+  const [delayedText, setDelayedText] = useState("");
+  const [webcamStatus, setWebcamStatus] = useState(false);
+
 
   const incrementChatProcessingCount = () => {
     setChatProcessingCount(prevCount => prevCount + 1);
@@ -430,7 +437,7 @@ export default function Home() {
       if (lastItem && lastItem.role === item.role) {
         lastItem.content += " " + item.content;
       } else {
-        acc.push({ ...item, content: item.content.trim() });
+        acc.push({ ...item, content: typeof(item.content)=="string"?item.content.trim():item.content[0].text+"[画像]" });
       }
       return acc;
     }, []).filter(item => item.content !== "");
@@ -530,8 +537,16 @@ export default function Home() {
         // ユーザーの発言を追加して表示
         const messageLog: Message[] = [
           ...chatLog,
-          { role: "user", content: newMessage },
+          { role: "user",
+            content: ( modalImage && selectAIService==="openai" && (selectAIModel==="gpt-4o"||selectAIModel==="gpt-4-turbo")) ? 
+              ( [ { type: "text", text: newMessage}, { type: "image_url", image_url: { url: modalImage }}]) 
+              : (newMessage)
+          },
         ];
+        if (modalImage) {
+          //setModalImage("");
+          clear();
+        }
         setChatLog(messageLog);
 
         const processedMessageLog = messageLog.map(message => ({
@@ -556,7 +571,7 @@ export default function Home() {
         setChatProcessing(false);
       }
     },
-    [webSocketMode, koeiroParam, handleSpeakAi, codeLog, t, selectAIService, openAiKey, anthropicKey, googleKey, groqKey, difyKey, chatLog, systemPrompt, processAIResponse]
+    [webSocketMode, koeiroParam, handleSpeakAi, codeLog, t, selectAIService, openAiKey, anthropicKey, googleKey, groqKey, difyKey, chatLog, systemPrompt, processAIResponse, modalImage, delayedText]
   );
 
   ///取得したコメントをストックするリストの作成（tmpMessages）
@@ -663,6 +678,58 @@ export default function Home() {
     }, INTERVAL_MILL_SECONDS_RETRIEVING_COMMENTS);
   }, [youtubeNoCommentCount, conversationContinuityMode]);
 
+  const handleChangeModelImage = useCallback(
+    async (image: string) => {
+      //console.log(image);
+      if (image!="") {
+        console.log("capture");
+        setModalImage(image);
+        setTriggerShutter(false); // シャッターをリセット
+      }
+  },[modalImage, setModalImage, handleSendChat]);
+
+  const clear = useCallback(
+    async () => {
+      setModalImage("")
+    }, []
+  );
+
+  useEffect(() => { // テキストと画像がそろったら、チャットを送信
+    if (delayedText && modalImage) {
+      handleSendChat(delayedText);
+      setDelayedText("");
+    }
+  }, [modalImage, delayedText]);
+
+  const handleVoiceShutter = useCallback(
+    async () => {
+      setTriggerShutter(true);
+    },[]);
+
+  const hookSendChat = useCallback(
+    (text: string) => {
+      handleVoiceShutter();
+      // MENUの中でshowCameraがtrueの場合、画像が取得されるまで待機
+      if (webcamStatus) { // Webcamが開いている場合
+        setDelayedText(text); // 画像が取得されるまで遅延させる
+      } else {
+        handleSendChat(text);
+      }
+    },
+    [handleSendChat, modalImage, setModalImage, webcamStatus, delayedText, setDelayedText]
+  );
+
+  const handleStatusWebcam = useCallback(
+    async (status: boolean) => {
+      setWebcamStatus(status); // カメラが開いているかどうかの状態を更新
+  },[]);
+
+  const handleImageDropped = useCallback(
+    async (image: string) => {
+      setModalImage(image);
+    },[]
+  );
+
   return (
     <>
       <div className={"font-M_PLUS_2"} style={{ backgroundImage: `url(${buildUrl(backgroundImageUrl)})`, backgroundSize: 'cover', minHeight: '100vh' }}>
@@ -676,10 +743,10 @@ export default function Home() {
             setSelectVoiceLanguage={setSelectVoiceLanguage}
           />
         )}
-        <VrmViewer />
+        <VrmViewer onImageDropped={handleImageDropped} />
         <MessageInputContainer
           isChatProcessing={chatProcessing}
-          onChatProcessStart={handleSendChat}
+          onChatProcessStart={hookSendChat}
           selectVoiceLanguage={selectVoiceLanguage}
         />
         <Menu
@@ -757,7 +824,20 @@ export default function Home() {
           onChangeShowCharacterName={setShowCharacterName}
           characterName={characterName}
           onChangeCharacterName={setCharacterName}
+          onChangeModalImage={handleChangeModelImage}
+          triggerShutter={triggerShutter}
+          onChangeWebcamStatus={handleStatusWebcam}
         />
+         {modalImage && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Image src={modalImage} width={512} height={512} alt="Modal Image" />
+          <IconButton className="absolute z-30"
+            iconName="24/Trash"
+              isProcessing={false}
+              onClick={clear}>
+            </IconButton>
+          </div>  
+        )}
       </div>
     </>
   );
